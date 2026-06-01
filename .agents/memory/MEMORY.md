@@ -1,0 +1,1 @@
+- [Playwright Chromium on Replit](playwright-chromium-replit.md) — use Nix `chromium` package + set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH; bundled playwright browsers lack system libs and `--with-deps` is blocked.
