@@ -282,16 +282,6 @@ function extractMessagesFromHtml(html: string) {
     deadLinkMessage = "This ChatGPT share link is invalid, completely private, or has been deleted by the author.";
   }
 
-  // Detect ChatGPT login-wall pages (private share links that require auth)
-  const LOGIN_WALL_STRINGS = [
-    "Get responses tailored to you",
-    "Log in to get answers based on saved chats",
-    "create images and upload files",
-  ];
-  if (LOGIN_WALL_STRINGS.every((s) => html.includes(s))) {
-    isDeadLink = true;
-    deadLinkMessage = "This ChatGPT conversation is private and requires you to be logged in. Share links must be set to 'Anyone with the link' in ChatGPT to be extractable. Please save the page as HTML instead.";
-  }
 
   // 1. Try __NEXT_DATA__
   const nextData = $("#__NEXT_DATA__").html();
@@ -725,10 +715,99 @@ router.post("/extract", async (req: Request, res: Response) => {
       throw new Error("CLOUDFLARE_BLOCKED");
     }
 
+    // ── Strategy 0: ChatGPT backend JSON API (most reliable, no HTML parsing) ─
+    // Public share links expose a JSON endpoint at /backend-api/share/{id}
+    // that returns the full conversation. This is faster and more reliable
+    // than HTML parsing or Playwright since it bypasses all bot detection.
+    if (isChatGPTShare) {
+      try {
+        const shareIdMatch = u.match(/share\/([a-zA-Z0-9_-]+)/);
+        if (shareIdMatch) {
+          const shareId = shareIdMatch[1];
+          const apiUrl = `https://chatgpt.com/backend-api/share/${shareId}`;
+          const apiResp = await axios.get(apiUrl, {
+            headers: {
+              "User-Agent": BROWSER_UA,
+              "Accept": "application/json",
+              "Referer": u,
+            },
+            timeout: 12000,
+          });
+          const shareData = apiResp.data;
+
+          if (shareData?.detail === "Not found" || shareData?.detail === "Conversation not found") {
+            throw new Error("CHAT_DELETED");
+          }
+
+          // Extract conversation title
+          if (shareData?.title) title = shareData.title;
+
+          // Walk the linear_conversation mapping
+          const conv = shareData?.linear_conversation || shareData?.conversation?.linear_conversation;
+          if (conv && typeof conv === "object") {
+            // linear_conversation is a dict keyed by message id; build ordered list
+            const nodes: any[] = Array.isArray(conv) ? conv : Object.values(conv);
+            for (const node of nodes) {
+              const msg = node?.message;
+              if (!msg) continue;
+              const role = msg.author?.role;
+              if (role !== "user" && role !== "assistant") continue;
+              const parts: any[] = msg.content?.parts ?? [];
+              const textContent = parts
+                .filter((p) => typeof p === "string")
+                .join("\n")
+                .trim();
+              if (textContent.length > 1) {
+                messages.push({ role, content: textContent, content_html: textContent });
+              }
+            }
+            messages = filterQualityMessages(messages);
+          }
+
+          // Fallback: walk mapping_dict if linear_conversation didn't yield
+          if (messages.length === 0 && shareData?.mapping) {
+            const mapping: Record<string, any> = shareData.mapping;
+            const ordered: any[] = [];
+            // Build tree order via parent pointers
+            const roots: string[] = [];
+            for (const [id, node] of Object.entries(mapping)) {
+              if (!node.parent) roots.push(id);
+            }
+            const walk = (id: string) => {
+              const node = mapping[id];
+              if (!node) return;
+              ordered.push(node);
+              (node.children || []).forEach(walk);
+            };
+            roots.forEach(walk);
+
+            for (const node of ordered) {
+              const msg = node.message;
+              if (!msg) continue;
+              const role = msg.author?.role;
+              if (role !== "user" && role !== "assistant") continue;
+              const parts: any[] = msg.content?.parts ?? [];
+              const textContent = parts
+                .filter((p) => typeof p === "string")
+                .join("\n")
+                .trim();
+              if (textContent.length > 1) {
+                messages.push({ role, content: textContent, content_html: textContent });
+              }
+            }
+            messages = filterQualityMessages(messages);
+          }
+        }
+      } catch (apiErr: any) {
+        if (apiErr.message?.includes("CHAT_DELETED")) throw apiErr;
+        // API unavailable or returned unexpected format — fall through to HTML/Playwright
+      }
+    }
+
     // ── Fast path: Direct HTTP extraction (no browser needed) ───────────────
     // ChatGPT share pages embed __NEXT_DATA__ with the full conversation JSON.
     // Perplexity share pages are SSR — content is in the HTML without JS.
-    if (isChatGPTShare || isPerplexityShare) {
+    if (messages.length === 0 && (isChatGPTShare || isPerplexityShare)) {
       try {
         const fastTimeout = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("FAST_TIMEOUT")), 15000)

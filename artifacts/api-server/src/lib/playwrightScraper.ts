@@ -398,13 +398,6 @@ function checkDeadState(html: string, url: string): void {
   ) {
     throw new Error("CLOUDFLARE_BLOCKED");
   }
-  // ChatGPT login wall — private share link shown to unauthenticated users
-  if (
-    html.includes("Get responses tailored to you") &&
-    html.includes("Log in to get answers based on saved chats")
-  ) {
-    throw new Error("LOGIN_REQUIRED");
-  }
 }
 
 // ─── Deduplication ────────────────────────────────────────────────────────────
