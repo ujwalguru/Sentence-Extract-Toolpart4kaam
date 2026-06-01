@@ -138,6 +138,15 @@ const NAV_PATTERNS = [
   /^(images|projects|memories|temporary|explore\s+gpts|sora|dall[- ]?e|library)\s*$/i,
   // Generic single-word non-sentence UI labels (no punctuation, no articles, ≤12 chars)
   /^[A-Z][a-z]{2,11}$/, // e.g. "Images", "Library", "Sora"
+  // ChatGPT login wall / upsell text shown when a share link is private or requires auth
+  /get responses tailored to you/i,
+  /log in to get answers/i,
+  /create images and upload files/i,
+  /plus create images and upload/i,
+  /answers based on saved chats/i,
+  /chatgpt can make mistakes.*check important/i,
+  /by messaging chatgpt.*cookie preferences/i,
+  /this is a copy of a shared chatgpt conversation/i,
 ];
 
 function isGarbageMessage(raw: string): boolean {
@@ -271,6 +280,17 @@ function extractMessagesFromHtml(html: string) {
   ) {
     isDeadLink = true;
     deadLinkMessage = "This ChatGPT share link is invalid, completely private, or has been deleted by the author.";
+  }
+
+  // Detect ChatGPT login-wall pages (private share links that require auth)
+  const LOGIN_WALL_STRINGS = [
+    "Get responses tailored to you",
+    "Log in to get answers based on saved chats",
+    "create images and upload files",
+  ];
+  if (LOGIN_WALL_STRINGS.every((s) => html.includes(s))) {
+    isDeadLink = true;
+    deadLinkMessage = "This ChatGPT conversation is private and requires you to be logged in. Share links must be set to 'Anyone with the link' in ChatGPT to be extractable. Please save the page as HTML instead.";
   }
 
   // 1. Try __NEXT_DATA__
