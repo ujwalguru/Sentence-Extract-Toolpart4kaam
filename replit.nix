@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.gcc-unwrapped
     pkgs.chromium
     pkgs.freetype
     pkgs.fontconfig

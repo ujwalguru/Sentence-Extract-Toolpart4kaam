@@ -1,20 +1,24 @@
 ---
-name: Playwright Chromium on Replit
-description: How to get Playwright's browser working in the Replit NixOS environment
+name: Playwright browser on Replit
+description: Which browser engine works with Playwright on Replit's NixOS environment and how to configure it.
 ---
 
-# Playwright Chromium on Replit
+## Rule
+Use **Firefox** (not Chromium) with Playwright on Replit. Chromium binaries fail due to glibc ABI mismatches.
 
-## The Rule
-Install `chromium` via Nix (`installSystemDependencies(["chromium"])`), then set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to the Nix binary path in the artifact's `[services.env]` block.
+**Why:** Both the Nix `chromium` package and Playwright's bundled Chromium headless shell crash with glibc errors (`undefined symbol: _dl_catch_error_ptr, version GLIBC_PRIVATE`) on Replit's NixOS + FHS hybrid environment. Firefox's bundled binary only needs `libstdc++.so.6` which IS available at `/lib/x86_64-linux-gnu/libstdc++.so.6` after installing `gcc-unwrapped`.
 
-**Why:** Playwright's own bundled `chromium-headless-shell` binary is a raw Linux ELF that expects system libraries (libglib, libdbus, libgbm, etc.) to be present via the OS linker. Replit's NixOS doesn't have them in the default environment, and `playwright install --with-deps` (which would use apt) is blocked. The Nix `chromium` package is properly patchelf'd and carries all its own library dependencies.
+**How to apply — any future api-server that needs Playwright:**
+1. `installSystemDependencies({ packages: ["gcc-unwrapped"] })` via code_execution
+2. In the scraper file: `import { firefox } from "playwright"` and `firefox.launch({ headless: true })`
+3. Dev script: `playwright install firefox` (not chromium)
+4. Do NOT set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var in artifact.toml
+5. Do NOT add Nix `chromium` to `replit.nix` for Playwright (it causes glibc conflict)
 
-**How to apply:** Any time Playwright is added to an api-server:
-1. `installSystemDependencies(["chromium"])` via code_execution
-2. Run `which chromium` to get the full Nix store path (e.g. `/nix/store/<hash>-chromium-<version>/bin/chromium`)
-3. Add to `[services.env]` in artifact.toml: `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = "<that path>"`
-4. The scraper code reads this env var first (before trying `which chromium`), so it's picked up immediately on startup
-5. Add `pnpm exec playwright install chromium` to the dev script as well — it's a no-op if the binary's already there, and ensures the Playwright version metadata stays consistent
+**WRONG approach (causes crashes):**
+- `import { chromium }` + `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` pointing to Nix store Chromium
+- Playwright's bundled headless-shell (also glibc issue)
+- `which chromium` fallback to Nix chromium (version 92, too old for Playwright 1.60)
 
-**Confirmed working:** Nix chromium 138.x with playwright ^1.60.0 on Replit (2026-06-01). Successful log line: `INFO: Playwright Chromium launched`.
+**Confirmed working:** Firefox 150.0.2 with Playwright ^1.60.0 on Replit (2026-06-02).
+Log when working: `[INFO]: Playwright Firefox launched`

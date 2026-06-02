@@ -706,12 +706,11 @@ router.post("/extract", async (req: Request, res: Response) => {
     const isGeminiShare = u.includes("gemini.google.com/share/") || u.includes("aistudio.google.com/share/");
 
     // ── Early bailout for Cloudflare-protected platforms ─────────────────────
-    // Claude.ai and Grok.com protect all pages (including public share links)
-    // behind Cloudflare Bot Management — automated access always hits a challenge
-    // page or login redirect.  Skip Playwright entirely and surface the right error.
-    const isClaudeShare = u.includes("claude.ai");
+    // Grok requires authentication even for share links — skip Playwright.
+    // Claude public share links (claude.ai/share/...) ARE accessible without login;
+    // let Playwright attempt them. checkDeadState will throw CLOUDFLARE_BLOCKED if blocked.
     const isGrokShare = u.includes("grok.com") || u.includes("x.com/i/grok");
-    if (isClaudeShare || isGrokShare) {
+    if (isGrokShare) {
       throw new Error("CLOUDFLARE_BLOCKED");
     }
 

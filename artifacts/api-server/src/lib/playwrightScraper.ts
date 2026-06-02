@@ -1,7 +1,6 @@
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { firefox, type Browser, type BrowserContext, type Page } from "playwright";
 import * as cheerio from "cheerio";
 import TurndownService from "turndown";
-import { execSync } from "child_process";
 import { logger } from "./logger";
 
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
@@ -10,50 +9,21 @@ const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fen
 let _browser: Browser | null = null;
 let _launchPromise: Promise<Browser> | null = null;
 
-const CHROMIUM_ARGS = [
-  "--no-sandbox",
-  "--disable-setuid-sandbox",
-  "--disable-dev-shm-usage",
-  "--disable-gpu",
-  "--disable-software-rasterizer",
-  "--disable-extensions",
-  "--disable-background-networking",
-  "--disable-default-apps",
-  "--disable-sync",
-  "--mute-audio",
-  "--no-first-run",
-  "--disable-blink-features=AutomationControlled",
-  "--disable-infobars",
-  "--ignore-certificate-errors",
-  "--hide-scrollbars",
-];
-
-/** Resolve the system Chromium executable (from Nix) if available. */
-function resolveChromiumPath(): string | undefined {
-  // Prefer env override
-  const envPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || process.env.CHROME_PATH;
-  if (envPath) return envPath;
-  try {
-    const found = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null", { encoding: "utf8" }).trim().split("\n")[0];
-    if (found) return found;
-  } catch { /* ignore */ }
-  return undefined;
-}
-
-const SYSTEM_CHROMIUM = resolveChromiumPath();
+// Firefox-compatible launch args (no Chromium-specific flags)
+const FIREFOX_PREFS = {
+  "media.volume_scale": "0.0",
+  "dom.webnotifications.enabled": false,
+};
 
 async function getBrowser(): Promise<Browser> {
   if (_browser && _browser.isConnected()) return _browser;
   if (_launchPromise) return _launchPromise;
 
-  const launchOpts: Parameters<typeof chromium.launch>[0] = {
-    headless: true,
-    args: CHROMIUM_ARGS,
-    ...(SYSTEM_CHROMIUM ? { executablePath: SYSTEM_CHROMIUM } : {}),
-  };
-
-  _launchPromise = chromium
-    .launch(launchOpts)
+  _launchPromise = firefox
+    .launch({
+      headless: true,
+      firefoxUserPrefs: FIREFOX_PREFS,
+    })
     .then((b) => {
       _browser = b;
       b.on("disconnected", () => {
@@ -61,7 +31,7 @@ async function getBrowser(): Promise<Browser> {
         _launchPromise = null;
         logger.warn("Playwright browser disconnected — will relaunch on next request");
       });
-      logger.info("Playwright Chromium launched");
+      logger.info("Playwright Firefox launched");
       return b;
     })
     .catch((err) => {
@@ -144,7 +114,7 @@ interface RawMessage {
 const CONFIGS: Record<Platform, PlatformConfig> = {
   chatgpt: {
     waitForSelector: '[data-message-author-role]',
-    waitTimeMs: 5000,
+    waitTimeMs: 22000,
     scrollToLoad: true,
     extract: async (page) => {
       return page.evaluate(() => {
@@ -161,7 +131,7 @@ const CONFIGS: Record<Platform, PlatformConfig> = {
 
   claude: {
     waitForSelector: '.font-claude-message, .font-user-message, [data-testid="human-turn"], [data-testid="ai-turn"]',
-    waitTimeMs: 6000,
+    waitTimeMs: 20000,
     scrollToLoad: true,
     extract: async (page) => {
       return page.evaluate(() => {
