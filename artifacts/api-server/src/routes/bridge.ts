@@ -6,7 +6,7 @@ import { convert } from "html-to-text";
 import crypto from "crypto";
 import TurndownService from "turndown";
 import axios from "axios";
-import { scrapeWithPlaywright, detectPlatform } from "../lib/playwrightScraper";
+import { scrapeWithCrawl4AI as scrapeWithPlaywright, detectPlatform } from "../lib/crawl4aiScraper";
 
 const router = Router();
 
